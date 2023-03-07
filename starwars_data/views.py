@@ -1,57 +1,46 @@
 import asyncio
+import csv
 import datetime
 import itertools
-import json
+import uuid
 
 import aiohttp
 import petl as etl
+from asgiref.sync import sync_to_async
 from django.http import HttpResponse
+from django.shortcuts import redirect, render
+from django.views import View
+from django.views.generic import ListView
+from django.shortcuts import get_object_or_404
 
-people_urls = [f"https://swapi.dev/api/people/?page={page}" for page in range(1, 10)]
-planets_urls = [f"https://swapi.dev/api/planets/?page={page}" for page in range(1, 7)]
+from starwars_data.models import Collection
+from starwars_explorer.swapi_client import SWAPIClient
 
+# Hardcoded number of pages for simplicity.
+# We could also determine the number of pages buy taking the count field and number of fetched resources from the first api call.
+PEOPLE_PAGES_NUMBER = 9
+PLANETS_PAGES_NUMBER = 6
 
-async def fetch_url(session, url):
-    async with session.get(url) as response:
-        data = await response.json()
-        return data
-
-
-async def get_planets(session):
-    planets_tasks = [
-        asyncio.create_task(fetch_url(session, url)) for url in planets_urls
-    ]
-    planets_pages = await asyncio.gather(*planets_tasks)
-    planets = (planets_page["results"] for planets_page in planets_pages)
-    planets = list(itertools.chain.from_iterable(planets))
-
-    return planets
+swapi_client = SWAPIClient()
 
 
-async def get_people(session):
-    people_tasks = [asyncio.create_task(fetch_url(session, url)) for url in people_urls]
-    people_pages = await asyncio.gather(*people_tasks)
-    people = (people_page["results"] for people_page in people_pages)
-    people = list(itertools.chain.from_iterable(people))
+class GenerateCollectionView(View):
+    def _drop_columns(self, table, columns):
+        return etl.cutout(table, *columns)
 
-    return people
+    def _change_date_format(self, table):
+        return table.convert(
+            "edited",
+            lambda x: datetime.datetime.strptime(x, "%Y-%m-%dT%H:%M:%S.%fZ").strftime(
+                "%Y-%m-%d"
+            ),
+        )
 
+    def _resolve_homeworld_urls(self, table, planets):
+        planet_url_to_name = {planet["url"]: planet["name"] for planet in planets}
+        return table.convert("homeworld", lambda x: planet_url_to_name[x])
 
-# Create your views here.
-
-
-async def craete_dataset(request):
-    async with aiohttp.ClientSession() as session:
-        print("waiting for people and planets")
-        people_task = asyncio.create_task(get_people(session))
-        planets_task = asyncio.create_task(get_planets(session))
-
-        people = await people_task
-        planets = await planets_task
-
-        print("people:", len(people))
-        print("planets:", len(planets))
-
+    async def get(self, request):
         fields_to_exclude = [
             "films",
             "species",
@@ -61,19 +50,92 @@ async def craete_dataset(request):
             "url",
         ]
 
-        table = etl.fromdicts(people)
-        table = etl.cutout(table, *fields_to_exclude)
-        table = table.convert(
-            "edited",
-            lambda x: datetime.datetime.strptime(x, "%Y-%m-%dT%H:%M:%S.%fZ").strftime(
-                "%Y-%m-%d"
-            ),
+        async with aiohttp.ClientSession() as session:
+            tasks = [
+                asyncio.create_task(
+                    swapi_client.get_resource(
+                        resource="people",
+                        pages_number=PEOPLE_PAGES_NUMBER,
+                        session=session,
+                    )
+                ),
+                asyncio.create_task(
+                    swapi_client.get_resource(
+                        resource="planets",
+                        pages_number=PLANETS_PAGES_NUMBER,
+                        session=session,
+                    )
+                ),
+            ]
+            people, planets = await asyncio.gather(*tasks)
+
+            # transformations
+            table = etl.fromdicts(people)
+            table = self._drop_columns(table, columns=fields_to_exclude)
+            table = self._change_date_format(table)
+            table = table.rename({"edited": "date"})
+            table = self._resolve_homeworld_urls(table, planets)
+
+            # TODO saving files on a disk and creating a database object could be atomic
+
+            # save collection to a csv file
+            file_name = f'{str(uuid.uuid1()).replace("-", "")}.csv'
+            etl.tocsv(table, f"collections/{file_name}")
+
+            # save collection to a database
+            create_collection = sync_to_async(Collection.objects.create)
+            await create_collection(file_name=file_name)
+
+            return redirect("home")
+
+
+class HomePageView(ListView):
+    model = Collection
+    ordering = ["-created_at"]
+
+
+class ColectionView(View):
+    START_QUERY_DEFAULT = 0
+    LIMIT_QUERY_DEFAULT = 10
+
+    def get(self, request, pk):
+        collection = get_object_or_404(Collection, pk=pk)
+
+        with open(f"collections/{collection.file_name}", "r") as f:
+            reader = csv.DictReader(f)
+            headers = reader.fieldnames
+            data = list(reader)
+
+        start = int(request.GET.get("start", self.START_QUERY_DEFAULT))
+        limit = int(request.GET.get("limit", self.LIMIT_QUERY_DEFAULT))
+        data = data[start : start + limit]
+
+        return render(
+            request,
+            "starwars_data/collection.html",
+            context = {
+                "headers": headers,
+                "data": data,
+                "limit": limit,
+                "pk": pk,
+            },
         )
-        table = table.rename({"edited": "date"})
 
-        planet_url_to_name = {planet["url"]: planet["name"] for planet in planets}
-        table = table.convert("homeworld", lambda x: planet_url_to_name[x])
+class AggregateData(View):
+    START_QUERY_DEFAULT = 0
+    LIMIT_QUERY_DEFAULT = 10
 
-        file_name = "output.csv"
-        etl.tocsv(table, file_name)
-        return HttpResponse(f"Collection was saved to {file_name}")
+    def get(self, request, pk):
+        collection = get_object_or_404(Collection, pk=pk)
+        table = etl.fromcsv(f'collections/{collection.file_name}')
+
+        limit = int(request.GET.get("limit", self.LIMIT_QUERY_DEFAULT))
+        table = etl.head(table, limit)
+
+        columns = ['homeworld', 'birth_year']
+        counts = etl.aggregate(table, columns, len)
+
+        etl.tocsv(counts, "aggregate.csv")
+
+        return redirect("home")
+
