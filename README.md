@@ -11,6 +11,10 @@ cp .env.example .env
 ```
 docker-compose up
 ```
+## Run migrations
+```
+docker-compose exec -it web python manage.py migrate
+```
 
 ## Visit homepage
 
