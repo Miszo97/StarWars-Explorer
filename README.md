@@ -9,7 +9,7 @@ cp .env.example .env
 ```
 ## Start services
 ```
-docker-compose up
+docker-compose up -d
 ```
 ## Run migrations
 ```
