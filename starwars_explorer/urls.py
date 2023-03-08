@@ -9,5 +9,5 @@ urlpatterns = [
     path("generate", GenerateCollectionView.as_view(), name="generate"),
     path("", HomePageView.as_view(), name="home"),
     path("collections/<int:pk>", ColectionView.as_view(), name="collections"),
-    path("collections/<int:pk>/aggregate", AggregateData.as_view(), name="collections"),
+    path("collections/<int:pk>/aggregate", AggregateData.as_view(), name="aggregate"),
 ]
