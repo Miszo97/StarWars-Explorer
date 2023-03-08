@@ -1,7 +1,8 @@
-from unittest import mock
 from django.test import TestCase
 from django.urls import reverse
+
 from starwars_data.models import Collection
+
 
 class HomePageViewTestCase(TestCase):
     def test_homepage_view(self):

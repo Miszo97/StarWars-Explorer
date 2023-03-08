@@ -2,17 +2,16 @@ import asyncio
 import csv
 import datetime
 import os
-from typing import List
 import uuid
+from typing import List
 
 import aiohttp
 import petl as etl
 from asgiref.sync import sync_to_async
 from django.http import HttpResponse
-from django.shortcuts import redirect, render
+from django.shortcuts import get_object_or_404, redirect, render
 from django.views import View
 from django.views.generic import ListView
-from django.shortcuts import get_object_or_404
 
 from starwars_data.models import Collection
 from starwars_explorer.swapi_client import SWAPIClient
@@ -29,7 +28,7 @@ class GenerateCollectionView(View):
     def _save_to_csv(self, table, file_name):
         if not os.path.exists("collections"):
             os.makedirs("collections")
-        
+
         etl.tocsv(table, f"collections/{file_name}")
 
     def _drop_columns(self, table, columns):
@@ -56,8 +55,6 @@ class GenerateCollectionView(View):
             "created",
             "url",
         ]
-
-
 
         async with aiohttp.ClientSession() as session:
             tasks = [
@@ -122,7 +119,7 @@ class ColectionView(View):
         return render(
             request,
             "starwars_data/collection.html",
-            context = {
+            context={
                 "headers": headers,
                 "data": data,
                 "limit": limit,
@@ -130,21 +127,28 @@ class ColectionView(View):
             },
         )
 
+
 class AggregateData(View):
     START_QUERY_DEFAULT = 0
     LIMIT_QUERY_DEFAULT = 10
 
     def get(self, request, pk):
         collection = get_object_or_404(Collection, pk=pk)
-        table = etl.fromcsv(f'collections/{collection.file_name}')
+        table = etl.fromcsv(f"collections/{collection.file_name}")
 
         limit = int(request.GET.get("limit", self.LIMIT_QUERY_DEFAULT))
         table = etl.head(table, limit)
 
-        aggregate_fields: List = request.GET.getlist('aggregate_field')
+        aggregate_fields: List = request.GET.getlist("aggregate_field")
 
-        table = etl.aggregate(table, aggregate_fields, len) if aggregate_fields else table
-        context = {'fieldnames': table.fieldnames(), 'table': table, "pk": pk, "limit": limit}
+        table = (
+            etl.aggregate(table, aggregate_fields, len) if aggregate_fields else table
+        )
+        context = {
+            "fieldnames": table.fieldnames(),
+            "table": table,
+            "pk": pk,
+            "limit": limit,
+        }
 
-        return render(request,"starwars_data/collection_aggregate.html", context)
-
+        return render(request, "starwars_data/collection_aggregate.html", context)
