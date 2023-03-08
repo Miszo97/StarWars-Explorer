@@ -1,6 +1,7 @@
 import asyncio
 import csv
 import datetime
+import os
 from typing import List
 import uuid
 
@@ -25,6 +26,12 @@ swapi_client = SWAPIClient()
 
 
 class GenerateCollectionView(View):
+    def _save_to_csv(self, table, file_name):
+        if not os.path.exists("collections"):
+            os.makedirs("collections")
+        
+        etl.tocsv(table, f"collections/{file_name}")
+
     def _drop_columns(self, table, columns):
         return etl.cutout(table, *columns)
 
@@ -49,6 +56,8 @@ class GenerateCollectionView(View):
             "created",
             "url",
         ]
+
+
 
         async with aiohttp.ClientSession() as session:
             tasks = [
@@ -80,7 +89,7 @@ class GenerateCollectionView(View):
 
             # save collection to a csv file
             file_name = f'{str(uuid.uuid1()).replace("-", "")}.csv'
-            etl.tocsv(table, f"collections/{file_name}")
+            self._save_to_csv(table, file_name)
 
             # save collection to a database
             create_collection = sync_to_async(Collection.objects.create)
