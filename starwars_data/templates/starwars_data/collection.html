@@ -1,0 +1,57 @@
+<!-- index.html -->
+
+<a href="{% url 'collections' pk %}?limit={{ limit|add:"10" }}">Load more</a>
+<a href="{% url 'home' %}">Home</a>
+
+<style>
+  .body {
+    display: flex;
+  }
+
+  .aggregate-form {
+    flex: 1;
+    margin-left: 30;
+    height: 200px;
+  }
+</style>
+
+<div class="body">
+  <div class="table">
+<table>
+    <thead>
+      <tr>
+        {% for header in headers %}
+        <th>{{ header }}</th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in data %}
+      <tr>
+        {% for value in row.values %}
+        <td>{{ value }}</td>
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="aggregate-form">
+<form action="{% url 'aggregate' pk %}" method="GET">
+  <fieldset>
+    <legend>Choose fields to aggregate</legend>
+    {% for header in headers %}
+    <div>
+      <input type="checkbox" id={{ header }} name=aggregate_field value={{ header }} />
+      <label for={{ header }}>{{ header }}</label>
+    </div>
+    {% endfor %}
+    <div>
+      <button type="submit"> Aggregate </button>
+    </div>
+    <input type="hidden" id={{ limit }} name=limit value={{ limit }} />
+  </fieldset>
+</form>
+</div>
+</div>
