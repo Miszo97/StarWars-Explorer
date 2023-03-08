@@ -10,3 +10,5 @@ RUN pip install pipenv && pipenv install --dev --system --deploy
 
 WORKDIR /app
 COPY . /app
+
+RUN python manage.py migrate
