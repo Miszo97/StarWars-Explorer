@@ -1,7 +1,7 @@
 import asyncio
 import csv
 import datetime
-import itertools
+from typing import List
 import uuid
 
 import aiohttp
@@ -132,10 +132,10 @@ class AggregateData(View):
         limit = int(request.GET.get("limit", self.LIMIT_QUERY_DEFAULT))
         table = etl.head(table, limit)
 
-        columns = ['homeworld', 'birth_year']
-        counts = etl.aggregate(table, columns, len)
+        aggregate_fields: List = request.GET.getlist('aggregate_field')
 
-        etl.tocsv(counts, "aggregate.csv")
+        table = etl.aggregate(table, aggregate_fields, len) if aggregate_fields else table
+        context = {'fieldnames': table.fieldnames(), 'table': table, "pk": pk, "limit": limit}
 
-        return redirect("home")
+        return render(request,"starwars_data/collection_aggregate.html", context)
 
