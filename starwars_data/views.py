@@ -1,27 +1,18 @@
-import asyncio
 import csv
 import datetime
 import os
 import uuid
 from typing import List
 
-import aiohttp
 import petl as etl
-from asgiref.sync import sync_to_async
-from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views import View
 from django.views.generic import ListView
 
 from starwars_data.models import Collection
-from starwars_explorer.swapi_client import SWAPIClient
+from starwars_explorer.swapi_client import RequestsSWAPIClient, SWAPIClient
 
-# Hardcoded number of pages for simplicity.
-# We could also determine the number of pages buy taking the count field and number of fetched resources from the first api call.
-PEOPLE_PAGES_NUMBER = 9
-PLANETS_PAGES_NUMBER = 6
-
-swapi_client = SWAPIClient()
+swapi_client: SWAPIClient = RequestsSWAPIClient()
 
 
 class GenerateCollectionView(View):
@@ -46,7 +37,7 @@ class GenerateCollectionView(View):
         planet_url_to_name = {planet["url"]: planet["name"] for planet in planets}
         return table.convert("homeworld", lambda x: planet_url_to_name[x])
 
-    async def get(self, request):
+    def get(self, request):
         fields_to_exclude = [
             "films",
             "species",
@@ -56,43 +47,25 @@ class GenerateCollectionView(View):
             "url",
         ]
 
-        async with aiohttp.ClientSession() as session:
-            tasks = [
-                asyncio.create_task(
-                    swapi_client.get_resource(
-                        resource="people",
-                        pages_number=PEOPLE_PAGES_NUMBER,
-                        session=session,
-                    )
-                ),
-                asyncio.create_task(
-                    swapi_client.get_resource(
-                        resource="planets",
-                        pages_number=PLANETS_PAGES_NUMBER,
-                        session=session,
-                    )
-                ),
-            ]
-            people, planets = await asyncio.gather(*tasks)
+        people = swapi_client.get_resource("people")
+        planets = swapi_client.get_resource("planets")
 
-            # transformations
-            table = etl.fromdicts(people)
-            table = self._drop_columns(table, columns=fields_to_exclude)
-            table = self._change_date_format(table)
-            table = table.rename({"edited": "date"})
-            table = self._resolve_homeworld_urls(table, planets)
+        # transformations
+        table = etl.fromdicts(people)
+        table = self._drop_columns(table, columns=fields_to_exclude)
+        table = self._change_date_format(table)
+        table = table.rename({"edited": "date"})
+        table = self._resolve_homeworld_urls(table, planets)
 
-            # TODO saving files on a disk and creating a database object could be atomic
+        # TODO saving files on a disk and creating a database object could be atomic
 
-            # save collection to a csv file
-            file_name = f'{str(uuid.uuid1()).replace("-", "")}.csv'
-            self._save_to_csv(table, file_name)
+        # save collection to a csv file
+        file_name = f'{str(uuid.uuid1()).replace("-", "")}.csv'
+        self._save_to_csv(table, file_name)
 
-            # save collection to a database
-            create_collection = sync_to_async(Collection.objects.create)
-            await create_collection(file_name=file_name)
+        Collection.objects.create(file_name=file_name)
 
-            return redirect("home")
+        return redirect("home")
 
 
 class HomePageView(ListView):
