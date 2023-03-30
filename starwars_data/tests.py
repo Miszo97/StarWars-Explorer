@@ -1,16 +1,22 @@
-from django.test import TestCase
-from django.urls import reverse
-
 from starwars_data.models import Collection
+from rest_framework.test import APIClient
+import pytest
 
 
-class HomePageViewTestCase(TestCase):
-    def test_homepage_view(self):
-        """
-        Tests that the homepage view returns a status code of 200 and uses the correct template
-        """
-        Collection.objects.create(file_name="file_name.csv")
+pytestmark = pytest.mark.django_db
 
-        response = self.client.get(reverse("home"))
-        self.assertEqual(response.status_code, 200)
-        self.assertTemplateUsed(response, "starwars_data/collection_list.html")
+class TestCollectionsView:
+    def test_get_collections(self):
+        Collection.objects.create(file_name = "abc")
+        client = APIClient()
+        response = client.get('/api/collections')
+        assert response.status_code == 200
+        assert len(response.data) == 1
+
+
+class TestGenerateView:
+    def test_post_generate(self):
+        client = APIClient()
+        response = client.post('/api/generate')
+        assert response.status_code == 200
+
