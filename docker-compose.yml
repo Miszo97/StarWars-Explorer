@@ -23,6 +23,30 @@ services:
     ports:
       - "5432:5432"
 
+  celery:
+    build: .
+    command: celery -A starwars_explorer worker -l info
+    container_name: celery
+    volumes:
+      - .:/app
+    depends_on:
+      - web
+    env_file:
+      - .env
+
+  rabbitmq:
+    container_name: rabbitmq
+    image: rabbitmq
+    hostname: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: your_rabbitmq_username
+      RABBITMQ_DEFAULT_PASS: your_rabbitmq_password
+    ports:
+      - "5672:5672"
+
+
+  
+
 volumes:
   db-data:
 
